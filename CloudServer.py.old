@@ -1,0 +1,443 @@
+import pickle
+import socket,ssl
+import threading
+import ConfigParser
+import cgi, os
+import cgitb
+import hashlib
+from Crypto.Cipher import AES
+from Crypto import Random
+import base64
+import os, errno,sys
+import glob
+import json
+import md5
+from AccessCheck import *
+
+
+def silentremove(filename):
+    try:
+        os.remove(filename)
+    except OSError as e: # this would be "except OSError, e:" before Python 2.6
+        if e.errno != errno.ENOENT: # errno.ENOENT = no such file or directory
+            raise # re-raise exception if a different error occured
+
+def Ping(channel,details):
+    #channel.send (pickle.dumps ( ['Pong'] ))
+    print "sending pong..."
+    channel.send('Pong')
+    print "sent pong..."
+def Help(channel,details):
+    availableMethods = methods.keys()
+    channel.send ( json.dumps ( availableMethods ) )
+
+def ListCatalog(channel,details):
+    DeployFolder = ConfigSectionMap("Server")['deployfolder']
+    print DeployFolder
+    catalogList = os.listdir(DeployFolder)#glob.glob(DeployFolder + "/*")
+    print catalogList
+    channel.send(json.dumps(catalogList) )
+
+def DeleteFromCatalog(channel,details):
+    pass
+def UpdateCatalogList(channel,details):
+    pass
+def AddToCatalog(channel,details):
+
+    DeployFolder = ConfigSectionMap("Server")['deployfolder']
+    if (os.path.isdir(DeployFolder)):
+        print "DeployFolder: %s" % DeployFolder
+    else:
+        print "Not a real folder %s" % DeployFolder
+        channel.close()
+        return
+
+    channel.send ( 'Ready' )
+
+    filename = channel.recv(1024)
+    channel.send ( filename )
+
+
+    filepath = DeployFolder + '/' +filename
+    silentremove(filepath);
+
+    createFile = open(filepath, "w+b")
+    createFile.truncate()
+    
+    print "New file is to written: %s " % filepath
+    while True:
+        data = channel.recv(1024)
+        if not data: break 
+        createFile.write(data)
+
+    print "File written"
+    createFile.close()
+
+def ServeFileToReader(channel,details):
+    pass
+
+def GetFileChuncked(channel,details):
+    print "GetFile komutu alindi!"
+    #channel.send (pickle.dumps ( ['GetFileStarted'] )  )
+    channel.send ('GetFileStarted\n')
+
+    filename = ReadUntilGetStrippedLenght(channel,44)
+    acl=AccessCheck(str(filename),str(details[0]))    
+    print "access checking"
+    result=acl.execute()
+    print "executing"
+    if not acl.getStatus():
+        print result
+        channel.send(result)
+        return 0
+
+    print "FileToServe: [%s] " % filename
+
+    DeployFolder = ConfigSectionMap("Server")['deployfolder']
+    filepath = DeployFolder + '/' +filename
+    print filepath
+    if (effectively_readable(filepath)  and  filename != "" and  not os.path.isdir(filepath)):
+        channel.send("OK\n")
+        print "Sent OK"
+        ready=ReadUntilGetStrippedLenght(channel,5)
+        print ready
+        if ( ready == "Ready" ):
+            print "Got Ready"
+
+            print "File path"+filepath
+            
+
+
+
+            #Decrypt File
+            """
+            key = hashlib.sha256(filename).digest()[:32]
+            vi = hashlib.sha256(filename).digest()[:16]
+            encryptOBJ = AES.new(key, AES.MODE_CFB, vi)
+            """
+            readByte = open(filepath, "rb")
+            data = readByte.read()
+            
+            #Base64 Decode 
+            #newData = base64.b64decode(encryptOBJ.decrypt(data))
+            
+            
+            #channel.send(len(newData)+"|"+hashlib.sha256(newData).digest())
+
+
+           
+            #Encrpyt File
+
+            #key = hashlib.sha256(filename + "somemoresaltingherewouldbebetterthanthatoneiguess").digest()[:32]
+            #vi = hashlib.sha256(filename + "somemoresaltingherewouldbebetterthanthatoneiguess").digest()[:16]
+            #print str(key) + " " + str(vi)
+            
+            #key="\x00" *16
+            #vi="\x00" *16
+            #vi= "0000000000000000"
+
+            #encryptOBJ2 = AES.new(key, AES.MODE_CFB, vi,segment_size=128)
+            #newData = encryptOBJ2.encrypt(pad(newData,16))
+            print len(data)
+            print "md5:"+md5.new(data).hexdigest()
+            print "md5:"+md5.new(data).digest()
+            #Send File
+            print str(len(data))+"|"+md5.new(data).hexdigest()+"\n";
+            channel.send(str(len(data))+","+md5.new(data).hexdigest()+"\n");
+               
+            zero=ReadUntilGetStrippedLenght(channel,1);
+            if(zero=="0"):
+                channel.send( data );
+                """
+                while True:
+                    data = readByte.read(1024)
+                    if data=="":
+                        break
+                    else:
+                        channel.send(data)
+                """
+                #FIX:Android End Of File 
+                channel.send( "\x00"  );
+            else:
+                channel.send("Protocol Error")
+                return    
+           
+            readByte.close()
+        else:
+            print "Protocol Error"
+            channel.send("Protocol Error")
+            return
+    else:
+        channel.send("File Not Found!")
+        print "File Not Found!\n"
+        #GetFile(channel)
+        return
+
+def GetImage(channel,details):
+	filename="deneme"
+	filepath="./deneme"
+	key = hashlib.sha256(filename).digest()[:32]
+	vi = hashlib.sha256(filename).digest()[:16]
+	encryptOBJ = AES.new(key, AES.MODE_CFB, vi)
+	readByte = open(filepath, "rb")
+	print "File path"+filepath
+	data = readByte.read()
+	data = encryptOBJ.decrypt(data)
+	key = hashlib.sha256(filename + "somemoresaltingherewouldbebetterthanthatoneiguess").hexdigest()[:32]
+	vi = hashlib.sha256(filename + "somemoresaltingherewouldbebetterthanthatoneiguess").hexdigest()[:16]
+	print key + " " + vi
+	encryptOBJ2 = AES.new(key, AES.MODE_CFB, vi)
+	data = encryptOBJ2.encrypt(data)
+            #channel.send( data  )
+            
+            #data =  base64.b64decode( data )
+	print len(data)
+	channel.send( data );
+	channel.send( "\x00"  );
+	readByte.close()	
+def pad(x, n=16):
+    p = n - (len(x) % n)
+    return x + "\x00" * p
+def GetEgemen(channel,details):
+
+	key="\x00" *16
+	vi="\x00" *16
+	print key + " " + vi
+	data="SikiBuyuk"
+	encryptOBJ2 = AES.new(key, AES.MODE_CFB, vi,segment_size=128)
+	data = encryptOBJ2.encrypt(pad(data,16))
+            #channel.send( data  )
+            
+            #data =  base64.b64decode( data )
+	print len(data)
+	channel.send(data);
+	channel.send( "\x00"  );
+
+def md5Checksum(filePath):
+    with open(filePath, 'rb') as fh:
+        m = hashlib.md5()
+        while True:
+            data = fh.read(8192)
+            if not data:
+                break
+            m.update(data)
+        return m.hexdigest()
+
+
+def GetMd5(channel,details):
+    print "GetMd5 komutu alindi!"
+    channel.send("OK")
+    filename=channel.recv(1024).strip()
+    print filename
+    DeployFolder = ConfigSectionMap("Server")['deployfolder']
+    filepath=DeployFolder+'/'+filename
+    channel.send(md5Checksum(filepath))
+    channel.close()
+
+def GetFile(channel,details):
+    print "GetFile komutu alindi!"
+    #channel.send (pickle.dumps ( ['GetFileStarted'] )  )
+    channel.send ('GetFileStarted')
+
+    filename = ReadUntilGetStrippedLenght(channel,44)
+
+
+    print "FileToServe: [%s] " % filename
+
+    DeployFolder = ConfigSectionMap("Server")['deployfolder']
+    filepath = DeployFolder + '/' +filename
+    print filepath
+    if (effectively_readable(filepath)  and  filename != "" and  not os.path.isdir(filepath)):
+        channel.send("OK")
+        print "Sent OK"
+        ready=ReadUntilGetStrippedLenght(channel,5)
+        print ready
+        if ( ready == "Ready" ):
+            print "Got Ready"
+            key = hashlib.sha256(filename).digest()[:32]
+            
+            vi = hashlib.sha256(filename).digest()[:16]
+            
+            encryptOBJ = AES.new(key, AES.MODE_CFB, vi)
+            readByte = open(filepath, "rb")
+            print "File path"+filepath
+            data = readByte.read()
+            data = encryptOBJ.decrypt(data)
+
+            
+            key = hashlib.sha256(filename + "somemoresaltingherewouldbebetterthanthatoneiguess").digest()[:32]
+            vi = hashlib.sha256(filename + "somemoresaltingherewouldbebetterthanthatoneiguess").digest()[:16]
+            print key + " " + vi
+
+            encryptOBJ2 = AES.new(key, AES.MODE_CFB, vi)
+            data = encryptOBJ2.encrypt(data)
+            #channel.send( data  )
+            
+            #data =  base64.b64decode( data )
+
+            print len(data)
+
+            channel.send( data );
+
+            channel.send( "\x00"  );
+           
+            readByte.close()
+        else:
+            print "Protocol Error"
+            channel.send("Protocol Error")
+            return
+    else:
+        channel.send("File Not Found!")
+        print "File Not Found!\n"
+        GetFile(channel)
+        return
+
+
+def ReadUntilGetStrippedLenght(channel,lenght):
+    response = ""
+    while True:
+        data =  channel.recv(1024).strip()
+        print "stripped data:"
+        print data
+        print "[%s]",  data
+        response += str(data)
+        if len(response) >= lenght: return response
+        
+
+methods = {
+        'Ping': Ping ,
+        'Help': Help ,
+        'ListCatalog': ListCatalog,
+        'DeleteFromCatalog': DeleteFromCatalog,
+        'UpdateCatalogList': UpdateCatalogList,
+        'AddToCatalog': AddToCatalog,
+        'ServeFileToReader': ServeFileToReader ,
+        'GetFile': GetFile ,
+        'GetImage': GetImage,
+        'GetFileChuncked': GetFileChuncked,
+        'GetEgemen':GetEgemen,
+	'GetMd5': GetMd5,
+    }
+
+# Our thread class:
+class ClientThread ( threading.Thread ):
+
+   # Override Thread's __init__ method to accept the parameters needed:
+   def __init__ ( self, channel, details ):
+
+        self.channel = channel
+        self.details = details
+        threading.Thread.__init__ ( self )
+
+   def run ( self ):
+        try:
+            print 'Received connection:', self.details [ 0 ]
+            # We'll pickle a list of numbers:
+
+            #Request=pickle.loads(self.channel.recv ( 1024 ))
+            #print Request[0]
+            Request=self.channel.recv ( 1024 )
+            print "["+Request.strip()+"]"
+            methods[Request.strip()](self.channel,self.details);
+            #print self.channel.recv(1024);
+        except:
+            e = sys.exc_info()[0]
+            print e     
+        
+        print 'Closed connection:', self.details [ 0 ]
+        self.channel.close()
+
+
+
+def effectively_readable(path):
+    import os, stat
+
+    uid = os.getuid()
+    euid = os.geteuid()
+    gid = os.getgid()
+    egid = os.getegid()
+
+    # This is probably true most of the time, so just let os.access()
+    # handle it.  Avoids potential bugs in the rest of this function.
+    if uid == euid and gid == egid:
+        return os.access(path, os.R_OK)
+
+    st = os.stat(path)
+
+    # This may be wrong depending on the semantics of your OS.
+    # i.e. if the file is -------r--, does the owner have access or not?
+    if st.st_uid == euid:
+        return st.st_mode & stat.S_IRUSR != 0
+
+    # See comment for UID check above.
+    groups = os.getgroups()
+    if st.st_gid == egid or st.st_gid in groups:
+        return st.st_mode & stat.S_IRGRP != 0
+
+    return st.st_mode & stat.S_IROTH != 0
+
+
+
+
+
+
+print "Welcome to Linden Host Client"
+ 
+Config = ConfigParser.ConfigParser()
+configFilePath = os.path.dirname(os.path.realpath(__file__))+"/linden-host.config"
+
+print "Configuration file: " +configFilePath
+try:
+    Config.read(configFilePath)
+except IOError:
+    print "No configuration file! Please see manual."
+
+print "Configuration file loaded."
+
+
+
+
+
+
+
+def ConfigSectionMap(section):
+    dict1 = {}
+    options = Config.options(section)
+    for option in options:
+        try:
+            dict1[option] = Config.get(section, option)
+            if dict1[option] == -1:
+                DebugPrint("skip: %s" % option)
+        except:
+            print("exception on %s!" % option)
+            dict1[option] = None
+    return dict1
+
+# Set up the server:
+server = socket.socket ( socket.AF_INET, socket.SOCK_STREAM )
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+BindHOST = ConfigSectionMap("Server")['bindhost']
+BindPort = int(ConfigSectionMap("Server")['bindport'])
+ListenMaxRequest = int(ConfigSectionMap("Server")['listenmaxrequest'])
+
+server.bind ( ( BindHOST , int(BindPort) ) )
+print "Listening Server on %s:%s" % (BindHOST , BindPort)
+
+
+server.listen ( ListenMaxRequest )
+
+# Have the server serve "forever":
+while True:
+   channel, details = server.accept()
+   try:
+       connstream = ssl.wrap_socket(channel,
+                                     server_side=True,
+                                     certfile="cloud_cert.crt",
+                                     keyfile="cloud.key",
+                                     ssl_version=ssl.PROTOCOL_TLSv1,
+                                     suppress_ragged_eofs=False)
+       ClientThread ( connstream, details ).start()
+   except:
+	e = sys.exc_info()
+	print e
